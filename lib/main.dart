@@ -100,6 +100,42 @@ class _UpdaterPageState extends State<UpdaterPage> {
         fullUpgrade: _fullUpgrade,
       );
 
+  /// Validates the inputs and returns the port, or null (after a SnackBar) when
+  /// something is missing/invalid.
+  int? _validatedPort() {
+    if (_host.text.trim().isEmpty) {
+      _snack('Bitte Host/IP eintragen.');
+      return null;
+    }
+    if (_password.text.isEmpty) {
+      _snack('Bitte Pi-Passwort eintragen.');
+      return null;
+    }
+    final port = int.tryParse(_port.text.trim());
+    if (port == null || port <= 0 || port > 65535) {
+      _snack('Port ist ungültig (1–65535).');
+      return null;
+    }
+    return port;
+  }
+
+  SshConfig _configFor(int port) => SshConfig(
+        host: _host.text.trim(),
+        port: port,
+        username: _user.text.trim().isEmpty ? 'pi' : _user.text.trim(),
+        password: _password.text,
+        timeout: const Duration(seconds: 15),
+      );
+
+  void _beginBusy() {
+    setState(() {
+      _busy = true;
+      _log.clear();
+      _statusMessage = null;
+      _versionAfter = null;
+    });
+  }
+
   void _appendLog(String line) {
     if (!mounted) return;
     // Defense in depth: redact the live password from anything we log, so even
@@ -113,42 +149,14 @@ class _UpdaterPageState extends State<UpdaterPage> {
   }
 
   Future<void> _run({required bool dryRun}) async {
-    final host = _host.text.trim();
-    if (host.isEmpty) {
-      _snack('Bitte Host/IP eintragen.');
-      return;
-    }
-    if (_password.text.isEmpty) {
-      _snack('Bitte Pi-Passwort eintragen.');
-      return;
-    }
-    final port = int.tryParse(_port.text.trim());
-    if (port == null || port <= 0 || port > 65535) {
-      _snack('Port ist ungültig (1–65535).');
-      return;
-    }
-
-    final settings = _currentSettings();
-    await _store.save(settings);
-
-    setState(() {
-      _busy = true;
-      _log.clear();
-      _statusMessage = null;
-      _versionAfter = null;
-    });
-
-    final config = SshConfig(
-      host: settings.host,
-      port: port,
-      username: settings.username,
-      password: settings.password,
-      timeout: const Duration(seconds: 15),
-    );
+    final port = _validatedPort();
+    if (port == null) return;
+    await _store.save(_currentSettings());
+    _beginBusy();
 
     try {
       final summary = await _updater.run(
-        config: config,
+        config: _configFor(port),
         fullUpgrade: _fullUpgrade,
         dryRun: dryRun,
         onLog: _appendLog,
@@ -158,6 +166,45 @@ class _UpdaterPageState extends State<UpdaterPage> {
         _versionBefore = summary.before;
         _versionAfter = summary.after;
         _statusMessage = summary.message;
+        _statusOk = true;
+      });
+    } on EvccUpdateException catch (e) {
+      _appendLog('FEHLER: ${e.message}');
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = e.message;
+        _statusOk = false;
+      });
+    } catch (e) {
+      _appendLog('FEHLER: $e');
+      if (!mounted) return;
+      setState(() {
+        _statusMessage =
+            redactPassword('Unerwarteter Fehler: $e', _password.text);
+        _statusOk = false;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _testConnection() async {
+    final port = _validatedPort();
+    if (port == null) return;
+    await _store.save(_currentSettings());
+    _beginBusy();
+
+    try {
+      final info = await _updater.testConnection(
+        config: _configFor(port),
+        onLog: _appendLog,
+      );
+      if (!mounted) return;
+      setState(() {
+        _versionBefore = info.version;
+        _versionAfter = null;
+        _statusMessage = 'Verbindung OK – evcc ${info.version}, '
+            'Dienst ${info.serviceActive ? 'aktiv' : 'inaktiv'}.';
         _statusOk = true;
       });
     } on EvccUpdateException catch (e) {
@@ -235,6 +282,14 @@ class _UpdaterPageState extends State<UpdaterPage> {
                 minimumSize: const Size.fromHeight(52),
                 textStyle: const TextStyle(fontSize: 16),
               ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _testConnection,
+              icon: const Icon(Icons.wifi_tethering),
+              label: const Text('Verbindung testen'),
+              style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(44)),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(

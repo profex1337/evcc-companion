@@ -23,7 +23,11 @@ Beim Tippen auf **„evcc aktualisieren"** läuft genau die validierte SSH-Seque
 
 Der Dienst startet beim apt-Upgrade automatisch neu. Mit **„Probelauf (ändert
 nichts)"** läuft dieselbe Sequenz mit `--dry-run` — nichts wird verändert,
-ideal zum gefahrlosen Testen der Verbindung und ob ein Update verfügbar ist.
+ideal zum gefahrlosen Testen, ob ein Update verfügbar ist.
+
+Mit **„Verbindung testen"** prüfst du in Sekunden, ob Host/Port/Benutzer/Passwort
+stimmen: die App verbindet, liest die evcc-Version und den Dienststatus — **ohne
+`sudo`/`apt`**, also ohne irgendetwas anzufassen.
 
 ## Installation (Sideload)
 

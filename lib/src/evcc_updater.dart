@@ -29,6 +29,14 @@ class EvccUpdateException implements Exception {
   String toString() => 'EvccUpdateException($kind): $message';
 }
 
+/// Result of a successful connection test.
+class ConnectionInfo {
+  final String version;
+  final bool serviceActive;
+
+  const ConnectionInfo({required this.version, required this.serviceActive});
+}
+
 /// Builds the [SshRunner] for a given config (injected so tests can fake SSH).
 typedef SshRunnerFactory = SshRunner Function(SshConfig config);
 
@@ -51,6 +59,117 @@ class EvccUpdater {
     required bool fullUpgrade,
     required bool dryRun,
     required void Function(String line) onLog,
+  }) {
+    return _withConnection<UpdateSummary>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Verbunden. Starte ${dryRun ? 'Probelauf' : 'Update'} …');
+
+        final steps = buildUpdateSteps(fullUpgrade: fullUpgrade, dryRun: dryRun);
+        String? before;
+        String? after;
+        var upgradeOutput = '';
+
+        for (var i = 0; i < steps.length; i++) {
+          final step = steps[i];
+          log('\$ ${step.command}');
+
+          final result = await runner.run(
+            step.command,
+            stdin: step.needsSudoPassword ? '${config.password}\n' : null,
+            onOutput: (chunk) {
+              final trimmed = chunk.trimRight();
+              if (trimmed.isNotEmpty) log(trimmed);
+            },
+          );
+          final combined = '${result.stdout}\n${result.stderr}';
+
+          if (step.needsSudoPassword && isSudoPasswordFailure(combined)) {
+            throw const EvccUpdateException(
+              UpdateErrorKind.sudo,
+              'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
+            );
+          }
+
+          switch (i) {
+            case 0:
+              before = parseInstalledVersion(result.stdout);
+              if (before == null) {
+                throw const EvccUpdateException(
+                  UpdateErrorKind.packageMissing,
+                  'evcc ist auf dem Pi nicht installiert (apt-Paket fehlt).',
+                );
+              }
+            case 2:
+              upgradeOutput = combined;
+            case 3:
+              if (!dryRun && !isServiceActive(result.stdout)) {
+                throw const EvccUpdateException(
+                  UpdateErrorKind.serviceInactive,
+                  'evcc-Dienst ist nach dem Update nicht aktiv '
+                  '(systemctl is-active ≠ active).',
+                );
+              }
+            case 4:
+              after = parseInstalledVersion(result.stdout);
+          }
+        }
+
+        final summary = summarize(
+          before: before,
+          after: after,
+          dryRun: dryRun,
+          fullUpgrade: fullUpgrade,
+          alreadyNewest: isAlreadyNewest(upgradeOutput),
+        );
+        log(summary.message);
+        return summary;
+      },
+    );
+  }
+
+  /// Quick reachability/auth check: connects, reads the evcc version and the
+  /// service state. Uses no sudo and changes nothing. Throws
+  /// [EvccUpdateException] when the host is unreachable, auth fails, or evcc is
+  /// not installed.
+  Future<ConnectionInfo> testConnection({
+    required SshConfig config,
+    required void Function(String line) onLog,
+  }) {
+    return _withConnection<ConnectionInfo>(
+      config: config,
+      onLog: onLog,
+      body: (runner, log) async {
+        log('Verbunden. Prüfe evcc …');
+
+        log('\$ $versionQuery');
+        final versionResult = await runner.run(versionQuery);
+        final version = parseInstalledVersion(versionResult.stdout);
+        if (version == null) {
+          throw const EvccUpdateException(
+            UpdateErrorKind.packageMissing,
+            'Verbindung steht, aber evcc ist auf dem Pi nicht installiert.',
+          );
+        }
+
+        log('\$ $serviceStatus');
+        final serviceResult = await runner.run(serviceStatus);
+        final active = isServiceActive(serviceResult.stdout);
+
+        log('OK: evcc $version, Dienst ${active ? 'aktiv' : 'inaktiv'}.');
+        return ConnectionInfo(version: version, serviceActive: active);
+      },
+    );
+  }
+
+  /// Opens the connection, runs [body], and maps any SSH/IO failure to an
+  /// [EvccUpdateException]. The runner is always closed afterwards.
+  Future<T> _withConnection<T>({
+    required SshConfig config,
+    required void Function(String line) onLog,
+    required Future<T> Function(SshRunner runner, void Function(String) log)
+        body,
   }) async {
     final runner = runnerFactory(config);
     void log(String s) => onLog(redactPassword(s, config.password));
@@ -58,67 +177,7 @@ class EvccUpdater {
     try {
       log('Verbinde mit ${config.username}@${config.host}:${config.port} …');
       await runner.connect();
-      log('Verbunden. Starte ${dryRun ? 'Probelauf' : 'Update'} …');
-
-      final steps = buildUpdateSteps(fullUpgrade: fullUpgrade, dryRun: dryRun);
-      String? before;
-      String? after;
-      var upgradeOutput = '';
-
-      for (var i = 0; i < steps.length; i++) {
-        final step = steps[i];
-        log('\$ ${step.command}');
-
-        final result = await runner.run(
-          step.command,
-          stdin: step.needsSudoPassword ? '${config.password}\n' : null,
-          onOutput: (chunk) {
-            final trimmed = chunk.trimRight();
-            if (trimmed.isNotEmpty) log(trimmed);
-          },
-        );
-        final combined = '${result.stdout}\n${result.stderr}';
-
-        if (step.needsSudoPassword && isSudoPasswordFailure(combined)) {
-          throw const EvccUpdateException(
-            UpdateErrorKind.sudo,
-            'sudo hat das Passwort abgelehnt – stimmt das Pi-Passwort?',
-          );
-        }
-
-        switch (i) {
-          case 0:
-            before = parseInstalledVersion(result.stdout);
-            if (before == null) {
-              throw const EvccUpdateException(
-                UpdateErrorKind.packageMissing,
-                'evcc ist auf dem Pi nicht installiert (apt-Paket fehlt).',
-              );
-            }
-          case 2:
-            upgradeOutput = combined;
-          case 3:
-            if (!dryRun && !isServiceActive(result.stdout)) {
-              throw const EvccUpdateException(
-                UpdateErrorKind.serviceInactive,
-                'evcc-Dienst ist nach dem Update nicht aktiv '
-                '(systemctl is-active ≠ active).',
-              );
-            }
-          case 4:
-            after = parseInstalledVersion(result.stdout);
-        }
-      }
-
-      final summary = summarize(
-        before: before,
-        after: after,
-        dryRun: dryRun,
-        fullUpgrade: fullUpgrade,
-        alreadyNewest: isAlreadyNewest(upgradeOutput),
-      );
-      log(summary.message);
-      return summary;
+      return await body(runner, log);
     } on EvccUpdateException {
       rethrow;
     } on SSHAuthError {

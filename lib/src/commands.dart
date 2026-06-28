@@ -27,8 +27,11 @@ class SshStep {
   });
 }
 
-/// Reads the installed version of the `evcc` package.
-const String _versionQuery = r"dpkg-query -W -f='${Version}' evcc";
+/// Reads the installed version of the `evcc` package (no sudo needed).
+const String versionQuery = r"dpkg-query -W -f='${Version}' evcc";
+
+/// Queries whether the evcc service is running (no sudo needed).
+const String serviceStatus = 'systemctl is-active evcc';
 
 /// Builds the ordered update sequence.
 ///
@@ -41,7 +44,7 @@ List<SshStep> buildUpdateSteps({
   return [
     const SshStep(
       label: 'Version vorher',
-      command: _versionQuery,
+      command: versionQuery,
       needsSudoPassword: false,
     ),
     const SshStep(
@@ -56,12 +59,12 @@ List<SshStep> buildUpdateSteps({
     ),
     const SshStep(
       label: 'Dienststatus',
-      command: 'systemctl is-active evcc',
+      command: serviceStatus,
       needsSudoPassword: false,
     ),
     const SshStep(
       label: 'Version nachher',
-      command: _versionQuery,
+      command: versionQuery,
       needsSudoPassword: false,
     ),
   ];
