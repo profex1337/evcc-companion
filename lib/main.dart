@@ -380,20 +380,6 @@ class _UpdaterPageState extends State<UpdaterPage> {
                     color: kGreen)),
           ],
         ),
-        actions: [
-          PopupMenuButton<String>(
-            enabled: !_busy,
-            onSelected: (v) {
-              if (v == 'install') _install();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'install',
-                child: Text('evcc installieren (experimentell)'),
-              ),
-            ],
-          ),
-        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -460,6 +446,28 @@ class _UpdaterPageState extends State<UpdaterPage> {
               label: const Text('Probelauf (ändert nichts)'),
               style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(44)),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                const Expanded(child: Divider(color: Colors.white12)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text('Erstinstallation auf neuem Pi',
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: Colors.white54)),
+                ),
+                const Expanded(child: Divider(color: Colors.white12)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _install,
+              icon: const Icon(Icons.install_mobile),
+              label: const Text('evcc installieren (experimentell)'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
             ),
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),

@@ -23,7 +23,17 @@ Widget _page() =>
     MaterialApp(home: UpdaterPage(store: _FakeStore(), updateChecker: _noUpdateChecker));
 
 void main() {
+  // A tall phone-sized surface so the whole single screen fits (the ListView
+  // builds lazily, so off-screen widgets wouldn't exist on the default surface).
+  void useTallScreen(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1080, 2600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   testWidgets('renders the single-screen updater UI', (tester) async {
+    useTallScreen(tester);
     await tester.pumpWidget(_page());
     await tester.pumpAndSettle();
 
@@ -31,6 +41,7 @@ void main() {
     expect(find.text('evcc aktualisieren'), findsOneWidget);
     expect(find.text('Verbindung testen'), findsOneWidget);
     expect(find.text('Probelauf (ändert nichts)'), findsOneWidget);
+    expect(find.text('evcc installieren (experimentell)'), findsOneWidget);
     expect(find.text('Komplettes System-Upgrade'), findsOneWidget);
     expect(find.text('Live-Log'), findsOneWidget);
     // Host/IP, Benutzer, Port, Passwort.
@@ -39,6 +50,7 @@ void main() {
 
   testWidgets('blocks the update and warns when the host is empty',
       (tester) async {
+    useTallScreen(tester);
     await tester.pumpWidget(_page());
     await tester.pumpAndSettle();
 
