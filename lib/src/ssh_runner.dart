@@ -1,0 +1,62 @@
+/// Connection config + the SSH abstraction the updater depends on.
+///
+/// Keeping the SSH surface behind [SshRunner] lets the update orchestration be
+/// unit-tested with a fake, without a real connection. The real adapter lives
+/// in `dartssh2_runner.dart`.
+library;
+
+/// Immutable connection parameters entered by the user.
+class SshConfig {
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+
+  /// Bounds the TCP connect AND the SSH auth handshake.
+  final Duration timeout;
+
+  /// Bounds a single command's execution. Generous, because an `apt-get`
+  /// upgrade can legitimately take a while — but still finite so a stuck
+  /// command (e.g. a held dpkg lock) cannot hang the app forever.
+  final Duration commandTimeout;
+
+  const SshConfig({
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+    this.timeout = const Duration(seconds: 15),
+    this.commandTimeout = const Duration(minutes: 10),
+  });
+}
+
+/// Result of running a single remote command.
+class CommandResult {
+  final int? exitCode;
+  final String stdout;
+  final String stderr;
+
+  const CommandResult({
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+  });
+}
+
+/// Minimal SSH surface used by the updater.
+abstract class SshRunner {
+  /// Open the connection and authenticate. Throws on connection/auth failure.
+  Future<void> connect();
+
+  /// Run [command]. If [stdin] is non-null it is written to the process' stdin
+  /// (used to feed the sudo password to `sudo -S`). [onOutput] receives output
+  /// chunks as they arrive so the UI can stream them live.
+  Future<CommandResult> run(
+    String command, {
+    String? stdin,
+    void Function(String chunk)? onOutput,
+  });
+
+  /// Close the connection. Safe to call even if [connect] failed.
+  Future<void> close();
+}

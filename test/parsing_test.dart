@@ -1,0 +1,182 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:evcc_updater/src/parsing.dart';
+
+void main() {
+  group('parseInstalledVersion', () {
+    test('trims trailing newline from dpkg-query output', () {
+      expect(parseInstalledVersion('0.310.0\n'), '0.310.0');
+    });
+
+    test('trims surrounding whitespace', () {
+      expect(parseInstalledVersion('  0.311.0  '), '0.311.0');
+    });
+
+    test('returns null when the package is not installed (empty output)', () {
+      expect(parseInstalledVersion(''), isNull);
+      expect(parseInstalledVersion('   \n'), isNull);
+    });
+  });
+
+  group('isAlreadyNewest', () {
+    test('detects the "already the newest version" message', () {
+      const out = 'evcc is already the newest version (0.310.0).\n'
+          '0 upgraded, 0 newly installed, 0 to remove and 28 not upgraded.';
+      expect(isAlreadyNewest(out), isTrue);
+    });
+
+    test('detects a "0 upgraded" summary line', () {
+      expect(
+        isAlreadyNewest(
+            '0 upgraded, 0 newly installed, 0 to remove and 5 not upgraded.'),
+        isTrue,
+      );
+    });
+
+    test('false when an upgrade is actually pending', () {
+      const out = 'The following packages will be upgraded:\n  evcc\n'
+          '1 upgraded, 0 newly installed, 0 to remove and 27 not upgraded.';
+      expect(isAlreadyNewest(out), isFalse);
+    });
+
+    test('does not misfire on a double-digit upgrade count', () {
+      // "10 upgraded, ..." must NOT match the "0 upgraded, ..." marker.
+      expect(
+        isAlreadyNewest(
+            '10 upgraded, 0 newly installed, 0 to remove and 5 not upgraded.'),
+        isFalse,
+      );
+    });
+  });
+
+  group('isServiceActive', () {
+    test('"active" means active', () => expect(isServiceActive('active\n'), isTrue));
+    test('"inactive" is not active',
+        () => expect(isServiceActive('inactive\n'), isFalse));
+    test('"failed" is not active', () => expect(isServiceActive('failed'), isFalse));
+  });
+
+  group('isSudoPasswordFailure', () {
+    test('detects "incorrect password attempt"', () {
+      expect(isSudoPasswordFailure('sudo: 1 incorrect password attempt'), isTrue);
+    });
+
+    test('detects "Sorry, try again."', () {
+      expect(isSudoPasswordFailure('Sorry, try again.'), isTrue);
+    });
+
+    test('false for normal apt output', () {
+      expect(isSudoPasswordFailure('Reading package lists...'), isFalse);
+    });
+  });
+
+  group('redactPassword', () {
+    test('replaces every occurrence with a fixed-length mask', () {
+      expect(
+        redactPassword('echo s3cret | sudo -S; s3cret', 's3cret'),
+        'echo $passwordMask | sudo -S; $passwordMask',
+      );
+    });
+
+    test('an empty password leaves the text untouched', () {
+      expect(redactPassword('nothing to redact', ''), 'nothing to redact');
+    });
+
+    test('matches the password literally, not as a regex', () {
+      expect(redactPassword('a.b matched', 'a.b'), '$passwordMask matched');
+    });
+  });
+
+  group('summarize (evcc-only)', () {
+    test('real run with a version change reports the upgrade', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.311.0',
+          dryRun: false,
+          fullUpgrade: false,
+          alreadyNewest: false);
+      expect(r.status, UpdateStatus.updated);
+      expect(r.message, 'evcc 0.310.0 → 0.311.0 aktualisiert.');
+    });
+
+    test('real run without a version change reports already current', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: false,
+          fullUpgrade: false,
+          alreadyNewest: true);
+      expect(r.status, UpdateStatus.alreadyCurrent);
+      expect(r.message, contains('war schon aktuell'));
+    });
+
+    test('dry-run with an update available names evcc', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: true,
+          fullUpgrade: false,
+          alreadyNewest: false);
+      expect(r.status, UpdateStatus.dryRunWouldUpdate);
+      expect(r.message, contains('Probelauf'));
+      expect(r.message, contains('evcc'));
+    });
+
+    test('dry-run while already newest reports no change', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: true,
+          fullUpgrade: false,
+          alreadyNewest: true);
+      expect(r.status, UpdateStatus.dryRunNoChange);
+    });
+  });
+
+  group('summarize (full system upgrade)', () {
+    test('dry-run with system updates talks about the system, not just evcc',
+        () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: true,
+          fullUpgrade: true,
+          alreadyNewest: false);
+      expect(r.status, UpdateStatus.dryRunWouldUpdate);
+      expect(r.message, contains('System'));
+    });
+
+    test('dry-run with everything current reports the system fully up to date',
+        () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: true,
+          fullUpgrade: true,
+          alreadyNewest: true);
+      expect(r.status, UpdateStatus.dryRunNoChange);
+      expect(r.message, contains('System'));
+    });
+
+    test('real run: evcc unchanged but other system packages upgraded', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.310.0',
+          dryRun: false,
+          fullUpgrade: true,
+          alreadyNewest: false);
+      expect(r.status, UpdateStatus.alreadyCurrent);
+      expect(r.message, contains('System-Pakete'));
+    });
+
+    test('real run: evcc itself upgraded during a full upgrade', () {
+      final r = summarize(
+          before: '0.310.0',
+          after: '0.311.0',
+          dryRun: false,
+          fullUpgrade: true,
+          alreadyNewest: false);
+      expect(r.status, UpdateStatus.updated);
+      expect(r.message, 'evcc 0.310.0 → 0.311.0 aktualisiert.');
+    });
+  });
+}
