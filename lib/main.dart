@@ -91,6 +91,7 @@ class UpdaterPage extends StatefulWidget {
     this.authenticator,
     this.apiClient,
     this.piFinder,
+    this.evccReleaseFetcher,
   });
 
   final AppConfigStore? store;
@@ -101,6 +102,10 @@ class UpdaterPage extends StatefulWidget {
 
   /// Discovers reachable SSH hosts on the local network. Injectable for tests.
   final Future<List<String>> Function()? piFinder;
+
+  /// Fetches evcc's latest release (for the pre-update notes). Injectable so
+  /// tests can drive the confirm/cancel flow without a live GitHub call.
+  final Future<EvccRelease?> Function()? evccReleaseFetcher;
 
   @override
   State<UpdaterPage> createState() => _UpdaterPageState();
@@ -117,6 +122,8 @@ class _UpdaterPageState extends State<UpdaterPage>
   late final EvccApiClient _apiClient = widget.apiClient ?? EvccApiClient();
   late final Future<List<String>> Function() _piFinder =
       widget.piFinder ?? findSshHosts;
+  late final Future<EvccRelease?> Function() _fetchEvccRelease =
+      widget.evccReleaseFetcher ?? fetchEvccRelease;
   final HistoryStore _historyStore = HistoryStore();
 
   final _host = TextEditingController();
@@ -462,7 +469,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     // the network await opens a window for double-taps / concurrent SSH ops.
     if (!dryRun) {
       setState(() => _busy = true);
-      final rel = await fetchEvccRelease();
+      final rel = await _fetchEvccRelease();
       if (!mounted) return;
       // Always warn when full-upgrade is on (it touches ALL packages, not just
       // evcc) — even if the release-notes fetch failed.

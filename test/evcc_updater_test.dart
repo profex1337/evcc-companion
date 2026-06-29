@@ -315,6 +315,25 @@ void main() {
       expect(runner.closed, isTrue);
     });
 
+    test('a failed apt-get update (unreachable repo) does NOT block the upgrade',
+        () async {
+      // i==1 (apt-get update) may exit non-zero on a flaky third-party repo;
+      // that must not abort an otherwise-fine evcc upgrade (only i==2 is gated).
+      final runner = FakeSshRunner({
+        _vQuery: [_r('0.310.0\n'), _r('0.311.0\n')],
+        _aptUpdate: [
+          _r('', stderr: 'Failed to fetch http://other.repo', exitCode: 100)
+        ],
+        _aptUpgrade: [_r('1 upgraded, 0 newly installed')],
+        _svc: [_r('active\n')],
+      });
+
+      final result = await _updaterWith(runner).run(
+          config: _config, fullUpgrade: false, dryRun: false, onLog: (_) {});
+
+      expect(result.status, UpdateStatus.updated);
+    });
+
     test('a non-zero apt step is a hard error, not a false "already current"',
         () async {
       final runner = FakeSshRunner({
@@ -724,6 +743,37 @@ void main() {
             config: _config, detection: detection, onLog: (_) {}),
         throwsA(isA<EvccUpdateException>()
             .having((e) => e.kind, 'kind', UpdateErrorKind.serviceInactive)),
+      );
+    });
+
+    test('sudo branch: a rejected password on inspect is a sudo error',
+        () async {
+      final runner = FakeSshRunner({
+        jsonSudoCmd: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+      await expectLater(
+        _updaterWith(runner).updateDocker(
+            config: _config, detection: sudoDetection, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
+      );
+    });
+
+    test('sudo branch: a rejected password on the update script is a sudo error',
+        () async {
+      final runner = FakeSshRunner({
+        jsonSudoCmd: [_r(composeInspect())],
+        sudoShell: [
+          _r('', stderr: 'sudo: 1 incorrect password attempt', exitCode: 1)
+        ],
+      });
+      await expectLater(
+        _updaterWith(runner).updateDocker(
+            config: _config, detection: sudoDetection, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.sudo)),
       );
     });
   });

@@ -23,6 +23,30 @@ class Dartssh2Runner implements SshRunner {
   Dartssh2Runner(this.config, {HostKeyStore? hostKeyStore})
       : _hostKeyStore = hostKeyStore ?? SecureHostKeyStore();
 
+  /// TOFU host-key decision, isolated for unit testing. [fingerprint] is the
+  /// UTF-8-encoded `SHA256:<base64>` dartssh2 presents. First use records the
+  /// key and accepts; a match accepts; a change records the new fingerprint and
+  /// rejects (false) so the handshake aborts before any password is sent.
+  Future<bool> checkAndRecordHostKey(Uint8List fingerprint) async {
+    final presented = utf8.decode(fingerprint);
+    final id = hostKeyId(config.host, config.port);
+    final stored = await _hostKeyStore.get(id);
+    switch (verifyHostKey(stored: stored, presented: presented)) {
+      case HostKeyVerdict.firstUse:
+        await _hostKeyStore.set(id, presented);
+        return true;
+      case HostKeyVerdict.match:
+        return true;
+      case HostKeyVerdict.changed:
+        _changedFingerprint = presented;
+        _storedAtCheck = stored;
+        return false;
+    }
+  }
+
+  /// The new fingerprint captured when [checkAndRecordHostKey] saw a change.
+  String? get changedFingerprint => _changedFingerprint;
+
   @override
   Future<void> connect() async {
     // SSHSocket.connect's timeout only bounds the TCP handshake, so bound the
@@ -61,23 +85,8 @@ class Dartssh2Runner implements SshRunner {
       onPasswordRequest: config.usesKeyAuth ? null : () => config.password,
       // TOFU host-key check. dartssh2 hands us the OpenSSH `SHA256:<base64>`
       // fingerprint (UTF-8 bytes). Returning false aborts the handshake before
-      // any password is sent.
-      onVerifyHostKey: (type, fingerprint) async {
-        final presented = utf8.decode(fingerprint);
-        final id = hostKeyId(config.host, config.port);
-        final stored = await _hostKeyStore.get(id);
-        switch (verifyHostKey(stored: stored, presented: presented)) {
-          case HostKeyVerdict.firstUse:
-            await _hostKeyStore.set(id, presented);
-            return true;
-          case HostKeyVerdict.match:
-            return true;
-          case HostKeyVerdict.changed:
-            _changedFingerprint = presented;
-            _storedAtCheck = stored;
-            return false;
-        }
-      },
+      // any password is sent. Delegates to a testable method.
+      onVerifyHostKey: (type, fingerprint) => checkAndRecordHostKey(fingerprint),
     );
     try {
       // Force authentication now so wrong-password errors surface here.

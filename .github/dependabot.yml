@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Keep the CI actions current (and let Dependabot pin them to SHAs over time),
+  # closing the "mutable major tag" supply-chain gap.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Surface outdated Dart/Flutter dependencies.
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -41,8 +41,14 @@
   <h2>Netzwerkzugriffe</h2>
   <ul>
     <li><strong>SSH</strong> zu dem von dir eingegebenen Host (dein eigenes Gerät im Netzwerk).</li>
-    <li>Ein Aufruf der öffentlichen <strong>GitHub-Releases-API</strong>, um auf App-Updates zu prüfen.
-      Dabei werden <strong>keine</strong> personenbezogenen Daten gesendet.</li>
+    <li><strong>evcc-Web-API</strong> (Live-Status): ein lesender HTTP-Aufruf an
+      <code>http(s)://&lt;dein Host&gt;:&lt;Port&gt;/api/state</code> auf deinem eigenen Gerät – nur wenn du
+      „evcc-Status (Live)" öffnest. Keine Zugangsdaten werden dabei gesendet.</li>
+    <li><strong>Lokaler Netzwerk-Scan</strong> („Pi im Netzwerk suchen"): auf dein Antippen prüft die App in
+      deinem eigenen WLAN, welche Geräte den SSH-Port (22) offen haben. Es werden nur lokale Verbindungsversuche
+      gemacht; <strong>nichts</strong> verlässt dabei dein Gerät.</li>
+    <li>Aufrufe der öffentlichen <strong>GitHub-API</strong>: für App-Updates (dieses Projekt) und für die
+      evcc-Release-Notes (Projekt evcc-io/evcc). Dabei werden <strong>keine</strong> personenbezogenen Daten gesendet.</li>
     <li>Beim Öffnen von Links (evcc-Weboberfläche, offizielle evcc-App im Play Store) öffnet sich dein Browser
       bzw. der Play Store.</li>
   </ul>
@@ -61,9 +67,11 @@
   Connection details you enter (host, port, username, password) are stored <strong>only locally and encrypted</strong>
   on your device (Android Keystore). They are never transmitted to the developer or any third party. Your password
   is sent only over your own SSH connection to your own server to perform the action you trigger, and is filtered
-  from logs. The app makes one call to GitHub's public Releases API to check for app updates (no personal data sent).
-  Uninstalling the app deletes all stored data. This is an <strong>unofficial</strong> community tool, not affiliated
-  with the evcc project. Contact: via
+  from logs. The app calls GitHub's public API to check for app updates and to fetch evcc's release notes, makes a
+  read-only HTTP call to your own evcc web API (<code>/api/state</code>) when you open the live status, and — only
+  when you tap "find Pi" — probes the SSH port of devices on your own local Wi-Fi (nothing leaves your device).
+  No personal data is sent in any case. Uninstalling the app deletes all stored data. This is an
+  <strong>unofficial</strong> community tool, not affiliated with the evcc project. Contact: via
   <a href="https://github.com/profex1337/evcc-pi-tool/issues">GitHub Issues</a>.</p>
 </main>
 </body>
