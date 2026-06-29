@@ -51,11 +51,20 @@ Der Dienst startet beim apt-Upgrade automatisch neu. Mit **„Probelauf (ändert
 nichts)"** läuft dieselbe Sequenz mit `--dry-run` — nichts wird verändert.
 
 **Docker-Installation** — läuft evcc in einem Container, aktualisiert die App
-ihn über docker compose im Projektverzeichnis des Containers:
-`docker compose pull <service>` → `docker compose up -d <service>`. Funktioniert
-für **compose-verwaltete** Container; ein reiner `docker run`-Container wird
-erkannt und sauber gemeldet (manuelles Update nötig). Docker-Befehle laufen bei
-Bedarf automatisch über `sudo`.
+ihn passend zum Setup:
+- **docker compose**: `docker compose pull` → `up -d` im Projektverzeichnis,
+  mit gepinntem Projekt (`-p`) und Compose-Datei(en) (`-f`), damit kein
+  Doppel-Container entsteht; fällt automatisch auf das v1-Binary
+  `docker-compose` zurück, wenn das v2-Plugin fehlt.
+- **`docker run`** (ohne compose): zieht das neue Image und legt den Container
+  **aus `docker inspect` rekonstruiert** neu an (Ports, Volumes, Env,
+  Restart-Policy, Netzwerk sowie `--device`/`--privileged`/`--group-add` für
+  USB-/RS485-Zähler). Der alte Container wird dabei nur **umbenannt**
+  (`<name>-evccpitool-old`), nie gelöscht — schlägt die Neuanlage fehl, wird er
+  automatisch zurückgerollt. **Experimentell**, nicht gegen jede Konfiguration
+  getestet.
+
+Docker-Befehle laufen bei Bedarf automatisch über `sudo`.
 
 Mit **„Verbindung testen"** prüfst du in Sekunden, ob Host/Port/Benutzer/Zugang
 stimmen: die App verbindet, erkennt die Installationsart (apt/Docker) und
@@ -218,4 +227,5 @@ Widget-Tests mit injizierten Fakes).
 ## Roadmap
 
 - iOS: bewusst später. Die Flutter-Codebasis hält die Tür offen.
-- Docker-Update auch für nicht-compose-Container (derzeit nur gemeldet).
+- Docker-`run`-Rekonstruktion deckt die gängigen Fälle ab; exotische Flags
+  (`--mount type=volume`, custom `--entrypoint`) werden noch nicht übernommen.

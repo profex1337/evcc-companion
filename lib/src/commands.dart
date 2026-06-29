@@ -241,16 +241,29 @@ $dc up -d $svc
 ''';
 }
 
-/// Environment variables that are image/base defaults, not user config — these
-/// are dropped when reconstructing a `docker run`, since the image re-applies
-/// them anyway and re-passing a stale value could clobber the new image's.
+/// Environment variables that are pure image/base defaults — dropped when
+/// reconstructing a `docker run` (the new image supplies its own; re-passing a
+/// stale value could clobber it). Note: other `Config.Env` entries may also be
+/// image-baked defaults, but re-passing them is harmless for evcc.
 const _imageDefaultEnv = {'PATH'};
 
+/// Restart-policy names accepted verbatim. Anything else (incl. tampered/odd
+/// values) is dropped rather than interpolated raw — defense-in-depth.
+const _allowedRestart = {'always', 'unless-stopped', 'on-failure'};
+
+/// Label key prefixes that are image- or infra-owned, not user `-l` flags —
+/// these are not re-passed when reconstructing a `docker run`.
+const _infraLabelPrefixes = [
+  'com.docker.',
+  'org.opencontainers.',
+  'org.label-schema.',
+];
+
 /// Reconstructs an equivalent `docker run -d …` command from a full
-/// `docker inspect` object, preserving name, restart policy, port bindings,
-/// bind/volume mounts, user env and a non-default network. [image] overrides
-/// the image reference (e.g. to pin a freshly-pulled tag). Used to update a
-/// plain (non-compose) container by recreating it.
+/// `docker inspect` object, preserving name, restart policy, privileges/devices
+/// /capabilities/groups (serial-meter setups), port bindings, bind/volume
+/// mounts, log options, user env, user labels and a non-default network.
+/// [image] overrides the image reference (e.g. to pin a freshly-pulled tag).
 String buildDockerRunCommand(Map<String, dynamic> container, {String? image}) {
   final config = (container['Config'] is Map)
       ? Map<String, dynamic>.from(container['Config'] as Map)
@@ -268,18 +281,21 @@ String buildDockerRunCommand(Map<String, dynamic> container, {String? image}) {
   final args = <String>['docker', 'run', '-d'];
   if (name.isNotEmpty) args.addAll(['--name', shSingleQuote(name)]);
 
+  // Restart policy — whitelisted names only.
   final rp = (host['RestartPolicy'] is Map)
       ? Map<String, dynamic>.from(host['RestartPolicy'] as Map)
       : <String, dynamic>{};
   final rpName = (rp['Name'] ?? '').toString();
-  if (rpName.isNotEmpty && rpName != 'no') {
+  if (_allowedRestart.contains(rpName)) {
     final retries = rp['MaximumRetryCount'];
     if (rpName == 'on-failure' && retries is int && retries > 0) {
-      args.addAll(['--restart', '$rpName:$retries']);
+      args.addAll(['--restart', 'on-failure:$retries']);
     } else {
       args.addAll(['--restart', rpName]);
     }
   }
+
+  if (host['Privileged'] == true) args.add('--privileged');
 
   // Published ports are discarded under host networking, so skip them there.
   if (!hostNetwork && host['PortBindings'] is Map) {
@@ -292,7 +308,8 @@ String buildDockerRunCommand(Map<String, dynamic> container, {String? image}) {
       if (bindings is List) {
         for (final b in bindings) {
           if (b is Map) {
-            final hostIp = (b['HostIp'] ?? '').toString();
+            var hostIp = (b['HostIp'] ?? '').toString();
+            if (hostIp.contains(':')) hostIp = '[$hostIp]'; // IPv6
             final hostPort = (b['HostPort'] ?? '').toString();
             final spec = hostIp.isNotEmpty
                 ? '$hostIp:$hostPort:$num$proto'
@@ -301,6 +318,41 @@ String buildDockerRunCommand(Map<String, dynamic> container, {String? image}) {
           }
         }
       }
+    }
+  }
+
+  // Devices / groups / capabilities — essential for USB/RS485 serial meters.
+  final devices = host['Devices'];
+  if (devices is List) {
+    for (final d in devices) {
+      if (d is Map) {
+        final onHost = (d['PathOnHost'] ?? '').toString();
+        if (onHost.isEmpty) continue;
+        final inC = (d['PathInContainer'] ?? onHost).toString();
+        final perms = (d['CgroupPermissions'] ?? '').toString();
+        final spec = perms.isEmpty ? '$onHost:$inC' : '$onHost:$inC:$perms';
+        args.addAll(['--device', shSingleQuote(spec)]);
+      }
+    }
+  }
+  for (final g in (host['GroupAdd'] is List ? host['GroupAdd'] as List : [])) {
+    args.addAll(['--group-add', shSingleQuote(g.toString())]);
+  }
+  for (final c in (host['CapAdd'] is List ? host['CapAdd'] as List : [])) {
+    args.addAll(['--cap-add', shSingleQuote(c.toString())]);
+  }
+
+  // Log driver/options — Pi users often cap log size to spare the SD card.
+  final log = host['LogConfig'];
+  if (log is Map) {
+    final type = (log['Type'] ?? '').toString();
+    if (type.isNotEmpty && type != 'json-file') {
+      args.addAll(['--log-driver', shSingleQuote(type)]);
+    }
+    final opts = log['Config'];
+    if (opts is Map) {
+      opts.forEach((k, v) =>
+          args.addAll(['--log-opt', shSingleQuote('$k=$v')]));
     }
   }
 
@@ -318,6 +370,16 @@ String buildDockerRunCommand(Map<String, dynamic> container, {String? image}) {
       if (_imageDefaultEnv.contains(s.split('=').first)) continue;
       args.addAll(['-e', shSingleQuote(s)]);
     }
+  }
+
+  // User labels only — image/infra-owned labels are re-applied by the image.
+  final labels = config['Labels'];
+  if (labels is Map) {
+    labels.forEach((k, v) {
+      final key = k.toString();
+      if (_infraLabelPrefixes.any(key.startsWith)) return;
+      args.addAll(['-l', shSingleQuote('$key=$v')]);
+    });
   }
 
   if (networkMode.isNotEmpty &&
@@ -342,13 +404,19 @@ String dockerRunRecreateScript({
   final n = shSingleQuote(name);
   final backup = shSingleQuote('$name-evccpitool-old');
   final img = shSingleQuote(image);
+  // Pull first (a failed pull aborts before anything is touched). Then keep the
+  // old container as a rollback by renaming it (never `-v`, so no data loss),
+  // create the new one, and if creation fails restore + restart the old one and
+  // report failure. A short settle lets an immediately-crashing new container
+  // drop out of `docker ps` before the caller verifies it.
   return '''
 set -e
 docker pull $img
 docker rm -f $backup >/dev/null 2>&1 || true
 docker stop $n
 docker rename $n $backup
-$runCommand
+$runCommand || { echo 'Neuanlage fehlgeschlagen – stelle alten Container wieder her.'; docker rm -f $n >/dev/null 2>&1 || true; docker rename $backup $n && docker start $n; exit 1; }
+sleep 3
 ''';
 }
 
