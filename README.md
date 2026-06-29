@@ -75,6 +75,10 @@ Eingaben werden **verschlüsselt im Android Keystore** gespeichert
 - Kein Account, kein Cloud-Backend. Annahme: LAN-Nutzung (zuhause im WLAN).
   Remote optional über **Tailscale-IP** (kein Portforwarding nötig).
 - `sudo -S` funktioniert auch ohne passwortloses sudo.
+- **Host-Key-Verifizierung (TOFU):** Der SSH-Host-Key wird beim ersten Connect
+  gemerkt und danach geprüft. Ändert er sich (möglicher MITM oder neu
+  aufgesetzter Pi), **blockiert** die App und sendet kein Passwort — erst nach
+  bewusstem „neuen Key vertrauen".
 
 ## Build & Releases (CI)
 

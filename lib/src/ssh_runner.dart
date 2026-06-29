@@ -43,6 +43,26 @@ class CommandResult {
   });
 }
 
+/// Thrown by a runner when the host's SSH key no longer matches the trusted
+/// one (possible MITM, or the Pi was re-flashed). Carries the new fingerprint
+/// so the UI can show it.
+class HostKeyChangedException implements Exception {
+  final String host;
+  final int port;
+  final String presented;
+  final String? stored;
+
+  const HostKeyChangedException({
+    required this.host,
+    required this.port,
+    required this.presented,
+    required this.stored,
+  });
+
+  @override
+  String toString() => 'HostKeyChangedException($host:$port, new=$presented)';
+}
+
 /// Minimal SSH surface used by the updater.
 abstract class SshRunner {
   /// Open the connection and authenticate. Throws on connection/auth failure.

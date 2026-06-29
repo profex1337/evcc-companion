@@ -390,5 +390,22 @@ void main() {
             .having((e) => e.kind, 'kind', UpdateErrorKind.packageMissing)),
       );
     });
+
+    test('maps a changed host key to a hostKeyChanged error', () async {
+      final runner = FakeSshRunner({},
+          connectError: const HostKeyChangedException(
+            host: '192.168.178.64',
+            port: 22,
+            presented: 'SHA256:new',
+            stored: 'SHA256:old',
+          ));
+
+      await expectLater(
+        _updaterWith(runner).run(
+            config: _config, fullUpgrade: false, dryRun: false, onLog: (_) {}),
+        throwsA(isA<EvccUpdateException>()
+            .having((e) => e.kind, 'kind', UpdateErrorKind.hostKeyChanged)),
+      );
+    });
   });
 }

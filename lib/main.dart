@@ -96,6 +96,9 @@ class _UpdaterPageState extends State<UpdaterPage>
   ReleaseInfo? _update;
   String? _setupUrl;
   Timer? _saveDebounce;
+  bool _hostKeyIssue = false;
+  SshConfig? _lastConfig;
+  Future<void> Function()? _lastAction;
 
   @override
   void initState() {
@@ -230,7 +233,17 @@ class _UpdaterPageState extends State<UpdaterPage>
       _statusMessage = null;
       _versionAfter = null;
       _setupUrl = null;
+      _hostKeyIssue = false;
     });
+  }
+
+  /// Re-trust a changed host key, then retry the action that hit it.
+  Future<void> _trustAndRetry() async {
+    final config = _lastConfig;
+    final action = _lastAction;
+    if (config == null || action == null) return;
+    await _updater.forgetHostKey(config);
+    await action();
   }
 
   void _appendLog(String line) {
@@ -248,12 +261,15 @@ class _UpdaterPageState extends State<UpdaterPage>
   Future<void> _run({required bool dryRun}) async {
     final port = _validatedPort();
     if (port == null) return;
+    final config = _configFor(port);
+    _lastConfig = config;
+    _lastAction = () => _run(dryRun: dryRun);
     await _store.save(_currentSettings());
     _beginBusy();
 
     try {
       final summary = await _updater.run(
-        config: _configFor(port),
+        config: config,
         fullUpgrade: _fullUpgrade,
         dryRun: dryRun,
         onLog: _appendLog,
@@ -271,6 +287,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       setState(() {
         _statusMessage = e.message;
         _statusOk = false;
+        _hostKeyIssue = e.kind == UpdateErrorKind.hostKeyChanged;
       });
     } catch (e) {
       _appendLog('FEHLER: $e');
@@ -288,12 +305,15 @@ class _UpdaterPageState extends State<UpdaterPage>
   Future<void> _testConnection() async {
     final port = _validatedPort();
     if (port == null) return;
+    final config = _configFor(port);
+    _lastConfig = config;
+    _lastAction = _testConnection;
     await _store.save(_currentSettings());
     _beginBusy();
 
     try {
       final info = await _updater.testConnection(
-        config: _configFor(port),
+        config: config,
         onLog: _appendLog,
       );
       if (!mounted) return;
@@ -310,6 +330,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       setState(() {
         _statusMessage = e.message;
         _statusOk = false;
+        _hostKeyIssue = e.kind == UpdateErrorKind.hostKeyChanged;
       });
     } catch (e) {
       _appendLog('FEHLER: $e');
@@ -352,12 +373,15 @@ class _UpdaterPageState extends State<UpdaterPage>
     );
     if (confirmed != true || !mounted) return;
 
+    final config = _configFor(port);
+    _lastConfig = config;
+    _lastAction = _install;
     await _store.save(_currentSettings());
     _beginBusy();
 
     try {
       final res = await _updater.install(
-        config: _configFor(port),
+        config: config,
         onLog: _appendLog,
       );
       if (!mounted) return;
@@ -376,6 +400,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       setState(() {
         _statusMessage = e.message;
         _statusOk = false;
+        _hostKeyIssue = e.kind == UpdateErrorKind.hostKeyChanged;
       });
     } catch (e) {
       _appendLog('FEHLER: $e');
@@ -511,6 +536,16 @@ class _UpdaterPageState extends State<UpdaterPage>
             if (_statusMessage != null) ...[
               const SizedBox(height: 12),
               _StatusBanner(message: _statusMessage!, ok: _statusOk),
+            ],
+            if (_hostKeyIssue) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _busy ? null : _trustAndRetry,
+                icon: const Icon(Icons.verified_user_outlined),
+                label: const Text('Pi neu aufgesetzt → neuen Key vertrauen'),
+                style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48)),
+              ),
             ],
             if (_setupUrl != null) ...[
               const SizedBox(height: 8),

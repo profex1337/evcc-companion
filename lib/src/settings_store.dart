@@ -1,5 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'host_key.dart';
+
 /// User-entered connection settings, persisted between launches.
 class Settings {
   final String host;
@@ -59,4 +61,22 @@ class SettingsStore {
     await _storage.write(key: _kPassword, value: s.password);
     await _storage.write(key: _kFullUpgrade, value: s.fullUpgrade.toString());
   }
+}
+
+/// [HostKeyStore] backed by the platform secure storage.
+class SecureHostKeyStore implements HostKeyStore {
+  final FlutterSecureStorage _storage;
+
+  SecureHostKeyStore([FlutterSecureStorage? storage])
+      : _storage = storage ?? const FlutterSecureStorage();
+
+  @override
+  Future<String?> get(String id) => _storage.read(key: id);
+
+  @override
+  Future<void> set(String id, String fingerprint) =>
+      _storage.write(key: id, value: fingerprint);
+
+  @override
+  Future<void> remove(String id) => _storage.delete(key: id);
 }

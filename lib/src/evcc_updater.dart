@@ -5,7 +5,9 @@ import 'package:dartssh2/dartssh2.dart';
 
 import 'commands.dart';
 import 'dartssh2_runner.dart';
+import 'host_key.dart';
 import 'parsing.dart';
+import 'settings_store.dart';
 import 'ssh_runner.dart';
 
 /// Categories of failure surfaced to the user with a clear message.
@@ -15,6 +17,7 @@ enum UpdateErrorKind {
   sudo,
   serviceInactive,
   packageMissing,
+  hostKeyChanged,
   unknown,
 }
 
@@ -52,11 +55,26 @@ typedef SshRunnerFactory = SshRunner Function(SshConfig config);
 class EvccUpdater {
   final SshRunnerFactory runnerFactory;
 
-  const EvccUpdater({required this.runnerFactory});
+  /// Used by [forgetHostKey] to re-trust a changed host key. The same store
+  /// instance is wired into the real runner so reads/writes stay consistent.
+  final HostKeyStore? hostKeyStore;
+
+  const EvccUpdater({required this.runnerFactory, this.hostKeyStore});
 
   /// Production updater backed by the real dartssh2 adapter.
-  factory EvccUpdater.real() =>
-      EvccUpdater(runnerFactory: (config) => Dartssh2Runner(config));
+  factory EvccUpdater.real() {
+    final store = SecureHostKeyStore();
+    return EvccUpdater(
+      runnerFactory: (config) => Dartssh2Runner(config, hostKeyStore: store),
+      hostKeyStore: store,
+    );
+  }
+
+  /// Forgets the trusted host key for [config] so the next connect re-trusts
+  /// (TOFU) the current key. Use after the user confirms a changed key is legit.
+  Future<void> forgetHostKey(SshConfig config) async {
+    await hostKeyStore?.remove(hostKeyId(config.host, config.port));
+  }
 
   /// Runs the update (or a dry-run probe) and returns a result summary.
   ///
@@ -248,6 +266,13 @@ class EvccUpdater {
       return await body(runner, log);
     } on EvccUpdateException {
       rethrow;
+    } on HostKeyChangedException catch (e) {
+      throw EvccUpdateException(
+        UpdateErrorKind.hostKeyChanged,
+        'Der SSH-Host-Key von ${e.host} hat sich geändert! Entweder wurde der '
+        'Pi neu aufgesetzt – oder jemand täuscht ihn vor. Aus Sicherheit wurde '
+        'KEIN Passwort gesendet.\nNeuer Fingerprint: ${e.presented}',
+      );
     } on SSHAuthError {
       throw const EvccUpdateException(
         UpdateErrorKind.auth,
