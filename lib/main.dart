@@ -1184,7 +1184,11 @@ class _UpdaterPageState extends State<UpdaterPage>
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.system_update_alt),
-              label: Text(_busy ? 'Läuft …' : 'evcc aktualisieren'),
+              label: Text(_busy
+                  ? 'Läuft …'
+                  : (_fullUpgrade
+                      ? 'Alle Pakete aktualisieren'
+                      : 'evcc aktualisieren')),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
                 textStyle: const TextStyle(fontSize: 16),

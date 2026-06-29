@@ -110,6 +110,22 @@ void main() {
     expect(store.saved.profiles.last.name, 'Eltern');
   });
 
+  testWidgets('the update button label tracks the full-upgrade toggle',
+      (tester) async {
+    useTallScreen(tester);
+    await tester.pumpWidget(_page());
+    await tester.pumpAndSettle();
+
+    expect(find.text('evcc aktualisieren'), findsOneWidget);
+    expect(find.text('Alle Pakete aktualisieren'), findsNothing);
+
+    await tester.tap(find.text('Komplettes System-Upgrade'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alle Pakete aktualisieren'), findsOneWidget);
+    expect(find.text('evcc aktualisieren'), findsNothing);
+  });
+
   testWidgets('Pi finden fills the host field from a scan result',
       (tester) async {
     useTallScreen(tester);
