@@ -28,6 +28,12 @@ class Settings {
   /// Whether the app requires biometric/PIN unlock on launch + resume.
   final bool lockEnabled;
 
+  /// 'system' | 'dark' | 'light'.
+  final String themeMode;
+
+  /// evcc apt channel for fresh installs: 'stable' | 'unstable' (nightly).
+  final String channel;
+
   const Settings({
     required this.host,
     required this.port,
@@ -40,6 +46,8 @@ class Settings {
     this.uiScheme = 'http',
     this.uiPort = '7070',
     this.lockEnabled = false,
+    this.themeMode = 'system',
+    this.channel = 'stable',
   });
 
   static const empty = Settings(
@@ -67,6 +75,8 @@ class SettingsStore {
   static const _kUiScheme = 'uiScheme';
   static const _kUiPort = 'uiPort';
   static const _kLockEnabled = 'lockEnabled';
+  static const _kThemeMode = 'themeMode';
+  static const _kChannel = 'channel';
 
   final FlutterSecureStorage _storage;
 
@@ -88,6 +98,8 @@ class SettingsStore {
       uiScheme: all[_kUiScheme] ?? Settings.empty.uiScheme,
       uiPort: all[_kUiPort] ?? Settings.empty.uiPort,
       lockEnabled: all[_kLockEnabled] == 'true',
+      themeMode: all[_kThemeMode] ?? Settings.empty.themeMode,
+      channel: all[_kChannel] ?? Settings.empty.channel,
     );
   }
 
@@ -103,6 +115,8 @@ class SettingsStore {
     await _storage.write(key: _kUiScheme, value: s.uiScheme);
     await _storage.write(key: _kUiPort, value: s.uiPort);
     await _storage.write(key: _kLockEnabled, value: s.lockEnabled.toString());
+    await _storage.write(key: _kThemeMode, value: s.themeMode);
+    await _storage.write(key: _kChannel, value: s.channel);
   }
 }
 

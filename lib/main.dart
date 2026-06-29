@@ -26,30 +26,49 @@ const kEvccPlayStoreUrl =
 const kPrivacyUrl = 'https://profex1337.github.io/evcc-pi-tool/privacy.html';
 const kReleasesUrl = 'https://github.com/profex1337/evcc-pi-tool/releases';
 
+/// Drives MaterialApp.themeMode; updated from the loaded setting + the picker.
+final ValueNotifier<ThemeMode> themeModeNotifier =
+    ValueNotifier<ThemeMode>(ThemeMode.system);
+
+ThemeMode parseThemeMode(String s) => switch (s) {
+      'dark' => ThemeMode.dark,
+      'light' => ThemeMode.light,
+      _ => ThemeMode.system,
+    };
+
+ThemeData _buildTheme(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  final scheme = dark
+      ? ColorScheme.fromSeed(seedColor: kGreen, brightness: Brightness.dark)
+          .copyWith(primary: kGreen, onPrimary: Colors.black, surface: kBlack)
+      : ColorScheme.fromSeed(seedColor: kGreen, brightness: Brightness.light);
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    scaffoldBackgroundColor: dark ? kBlack : null,
+    appBarTheme: AppBarTheme(
+      backgroundColor: dark ? kBlack : scheme.surface,
+      foregroundColor: dark ? Colors.white : scheme.onSurface,
+      elevation: 0,
+    ),
+  );
+}
+
 class EvccPiToolApp extends StatelessWidget {
   const EvccPiToolApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: kGreen,
-      brightness: Brightness.dark,
-    ).copyWith(primary: kGreen, onPrimary: Colors.black, surface: kBlack);
-
-    return MaterialApp(
-      title: 'evcc Pi-Tool',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: scheme,
-        scaffoldBackgroundColor: kBlack,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: kBlack,
-          foregroundColor: Colors.white,
-          elevation: 0,
-        ),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (_, mode, _) => MaterialApp(
+        title: 'evcc Pi-Tool',
+        debugShowCheckedModeBanner: false,
+        themeMode: mode,
+        theme: _buildTheme(Brightness.light),
+        darkTheme: _buildTheme(Brightness.dark),
+        home: const UpdaterPage(),
       ),
-      home: const UpdaterPage(),
     );
   }
 }
@@ -100,6 +119,8 @@ class _UpdaterPageState extends State<UpdaterPage>
   bool _lockEnabled = false;
   bool _locked = false;
   bool _unlocking = false;
+  String _themeMode = 'system';
+  String _channel = 'stable';
 
   final List<String> _log = [];
   String? _versionBefore;
@@ -173,8 +194,11 @@ class _UpdaterPageState extends State<UpdaterPage>
       _uiScheme = s.uiScheme;
       _uiPort.text = s.uiPort;
       _lockEnabled = s.lockEnabled;
+      _themeMode = s.themeMode;
+      _channel = s.channel;
       if (_lockEnabled) _locked = true;
     });
+    themeModeNotifier.value = parseThemeMode(_themeMode);
     // Attach auto-save listeners after initial values are set.
     for (final c in _savedControllers) {
       c.addListener(_scheduleSave);
@@ -202,6 +226,8 @@ class _UpdaterPageState extends State<UpdaterPage>
         uiScheme: _uiScheme,
         uiPort: _uiPort.text.trim().isEmpty ? '7070' : _uiPort.text.trim(),
         lockEnabled: _lockEnabled,
+        themeMode: _themeMode,
+        channel: _channel,
       );
 
   Future<void> _checkForUpdate() async {
@@ -363,7 +389,11 @@ class _UpdaterPageState extends State<UpdaterPage>
     if (config == null) return;
     _lastAction = _install;
     await _guard(() async {
-      final res = await _updater.install(config: config, onLog: _appendLog);
+      final res = await _updater.install(
+        config: config,
+        onLog: _appendLog,
+        channel: _channel,
+      );
       if (!mounted) return;
       setState(() {
         _versionBefore = res.version;
@@ -555,6 +585,35 @@ class _UpdaterPageState extends State<UpdaterPage>
                     helperText: 'Standard 7070',
                   ),
                 ),
+                const SizedBox(height: 16),
+                Text('Design', style: Theme.of(ctx).textTheme.labelLarge),
+                const SizedBox(height: 6),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'system', label: Text('System')),
+                    ButtonSegment(value: 'light', label: Text('Hell')),
+                    ButtonSegment(value: 'dark', label: Text('Dunkel')),
+                  ],
+                  selected: {_themeMode},
+                  onSelectionChanged: (s) {
+                    setState(() => _themeMode = s.first);
+                    themeModeNotifier.value = parseThemeMode(s.first);
+                    setSheet(() {});
+                    _scheduleSave();
+                  },
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('evcc-Nightly installieren'),
+                  subtitle: const Text(
+                      'unstable-Kanal statt stable (nur bei Neuinstallation)'),
+                  value: _channel == 'unstable',
+                  onChanged: (v) {
+                    setState(() => _channel = v ? 'unstable' : 'stable');
+                    setSheet(() {});
+                    _scheduleSave();
+                  },
+                ),
               ],
             ),
           ),
@@ -572,17 +631,17 @@ class _UpdaterPageState extends State<UpdaterPage>
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('evcc ',
+            const Text('evcc ',
                 style: TextStyle(
                     fontWeight: FontWeight.w800, letterSpacing: 0.3)),
             Text('Pi-Tool',
                 style: TextStyle(
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.3,
-                    color: kGreen)),
+                    color: theme.colorScheme.primary)),
           ],
         ),
         actions: [
@@ -696,14 +755,14 @@ class _UpdaterPageState extends State<UpdaterPage>
             const SizedBox(height: 20),
             Row(
               children: [
-                const Expanded(child: Divider(color: Colors.white12)),
+                const Expanded(child: Divider()),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: Text('Erstinstallation auf neuem Pi',
                       style: theme.textTheme.labelSmall
-                          ?.copyWith(color: Colors.white54)),
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                 ),
-                const Expanded(child: Divider(color: Colors.white12)),
+                const Expanded(child: Divider()),
               ],
             ),
             const SizedBox(height: 8),
@@ -775,8 +834,8 @@ class _UpdaterPageState extends State<UpdaterPage>
               'Nutzung auf eigene Gefahr – keine Haftung für Schäden am '
               'System. Inoffizielles Tool, nicht mit evcc verbunden.',
               textAlign: TextAlign.center,
-              style:
-                  theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -815,12 +874,14 @@ class _ConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final keyMode = authMode == AuthMode.key;
+    final cs = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
-      color: kCard,
+      color: dark ? kCard : cs.surfaceContainerHighest,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Colors.white10),
+        side: BorderSide(color: dark ? Colors.white10 : cs.outlineVariant),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Padding(

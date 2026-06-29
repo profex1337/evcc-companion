@@ -89,12 +89,15 @@ const String installShellCommand = 'sudo -S bash -s';
 /// The root install script: official evcc apt-repo setup + package install +
 /// service enable. Mirrors https://docs.evcc.io/en/installation/linux.
 /// Runs as root (via [installShellCommand]), so it uses no inner `sudo`.
-String buildInstallScript() {
+///
+/// [channel] selects the apt repo: 'stable' (default) or 'unstable' (nightly).
+String buildInstallScript({String channel = 'stable'}) {
+  final repo = channel == 'unstable' ? 'unstable' : 'stable';
   return '''
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.evcc.io/public/evcc/stable/setup.deb.sh' -o /tmp/evcc-setup.sh
+curl -1sLf 'https://dl.evcc.io/public/evcc/$repo/setup.deb.sh' -o /tmp/evcc-setup.sh
 bash /tmp/evcc-setup.sh
 rm -f /tmp/evcc-setup.sh
 apt-get update

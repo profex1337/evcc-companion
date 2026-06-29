@@ -199,6 +199,7 @@ class EvccUpdater {
   Future<InstallResult> install({
     required SshConfig config,
     required void Function(String line) onLog,
+    String channel = 'stable',
   }) {
     return _withConnection<InstallResult>(
       config: config,
@@ -209,7 +210,7 @@ class EvccUpdater {
 
         final result = await runner.run(
           installShellCommand,
-          stdin: '${config.password}\n${buildInstallScript()}\n',
+          stdin: '${config.password}\n${buildInstallScript(channel: channel)}\n',
           onOutput: (chunk) {
             final trimmed = chunk.trimRight();
             if (trimmed.isNotEmpty) log(trimmed);

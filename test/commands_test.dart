@@ -62,6 +62,14 @@ void main() {
       );
     });
 
+    test('uses the unstable (nightly) repo when channel is unstable', () {
+      final nightly = buildInstallScript(channel: 'unstable');
+      expect(
+        nightly,
+        contains('https://dl.evcc.io/public/evcc/unstable/setup.deb.sh'),
+      );
+    });
+
     test('enables and starts the service', () {
       expect(script, contains('systemctl enable --now evcc'));
     });
