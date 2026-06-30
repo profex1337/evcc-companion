@@ -138,6 +138,78 @@ class _ProfileBar extends StatelessWidget {
   }
 }
 
+/// Compact connection-test button below the profile bar. Neutral when untested,
+/// a spinner while testing, green when the last test succeeded, red on failure.
+class _TestButton extends StatelessWidget {
+  const _TestButton({
+    required this.testing,
+    required this.result,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final bool testing;
+  final bool? result; // null = untested
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final okGreen = dark ? kGreen : const Color(0xFF15803D);
+
+    Widget icon;
+    String label;
+    Color fg;
+    Color bg = Colors.transparent;
+    Color border;
+
+    if (testing) {
+      icon = const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2));
+      label = 'Teste …';
+      fg = cs.onSurfaceVariant;
+      border = cs.outlineVariant;
+    } else if (result == true) {
+      icon = Icon(Icons.check_circle, size: 18, color: okGreen);
+      label = 'Verbunden';
+      fg = okGreen;
+      bg = kGreen.withValues(alpha: dark ? 0.14 : 0.10);
+      border = kGreen.withValues(alpha: 0.55);
+    } else if (result == false) {
+      icon = Icon(Icons.error_outline, size: 18, color: cs.error);
+      label = 'Keine Verbindung';
+      fg = cs.error;
+      bg = cs.error.withValues(alpha: dark ? 0.14 : 0.08);
+      border = cs.error.withValues(alpha: 0.55);
+    } else {
+      icon = Icon(Icons.wifi_tethering, size: 18, color: cs.onSurfaceVariant);
+      label = 'Verbindung testen';
+      fg = cs.onSurfaceVariant;
+      border = cs.outlineVariant;
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: (enabled && !testing) ? onTap : null,
+        icon: icon,
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: fg,
+          backgroundColor: bg,
+          side: BorderSide(color: border),
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+      ),
+    );
+  }
+}
+
 class _ConnectionCard extends StatelessWidget {
   const _ConnectionCard({
     required this.host,

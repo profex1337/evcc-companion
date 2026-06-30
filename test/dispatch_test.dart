@@ -184,7 +184,22 @@ void main() {
         findsOneWidget);
   });
 
-  testWidgets('test-connection: unknown install is a non-OK banner',
+  testWidgets('Test button turns "Verbunden" on a successful test',
+      (tester) async {
+    useTallScreen(tester);
+    final updater = FakeEvccUpdater(); // default detection = apt success
+    await tester.pumpWidget(page(updater));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Verbindung testen'), findsOneWidget); // idle label
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Verbindung testen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Verbunden'), findsOneWidget); // green/ok state
+    expect(find.text('Verbindung testen'), findsNothing);
+  });
+
+  testWidgets('test-connection: unknown install is a non-OK banner + red button',
       (tester) async {
     useTallScreen(tester);
     final updater = FakeEvccUpdater()
@@ -196,6 +211,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('nicht gefunden'), findsOneWidget);
+    expect(find.text('Keine Verbindung'), findsOneWidget); // red/fail state
   });
 
   testWidgets('a changed host key surfaces the trust-and-retry button',

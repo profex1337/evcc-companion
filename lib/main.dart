@@ -148,6 +148,8 @@ class _UpdaterPageState extends State<UpdaterPage>
   String _channel = 'stable';
   bool _autoCheck = false;
   bool _backupBeforeUpdate = true;
+  bool _testing = false; // a "Verbindung testen" run is in flight
+  bool? _connectionOk; // null=untested, true=ok, false=failed (Test-Button color)
   List<Profile> _profiles = [const Profile(name: 'Standard')]; // growable
   int _activeIndex = 0;
 
@@ -233,10 +235,21 @@ class _UpdaterPageState extends State<UpdaterPage>
     for (final c in _savedControllers) {
       c.addListener(_scheduleSave);
     }
+    // Editing a connection field invalidates the last test result (clears the
+    // green/red Test-Button indicator).
+    for (final c in [_host, _port, _user, _password, _privateKey, _keyPassphrase]) {
+      c.addListener(_invalidateConnTest);
+    }
     if (_locked) {
       _tryUnlock();
     } else {
       _autoStatus();
+    }
+  }
+
+  void _invalidateConnTest() {
+    if (_connectionOk != null && mounted) {
+      setState(() => _connectionOk = null);
     }
   }
 
@@ -438,6 +451,7 @@ class _UpdaterPageState extends State<UpdaterPage>
       _versionAfter = null;
       _setupUrl = null;
       _hostKeyIssue = false;
+      _connectionOk = null; // clear the Test-Button indicator while an action runs
     });
   }
 
@@ -569,6 +583,7 @@ class _UpdaterPageState extends State<UpdaterPage>
     final config = _prepare();
     if (config == null) return;
     _lastAction = _testConnection;
+    setState(() => _testing = true);
     await _guard(() async {
       final d = await _updater.detectInstall(config: config, onLog: _appendLog);
       if (!mounted) return;
@@ -596,6 +611,14 @@ class _UpdaterPageState extends State<UpdaterPage>
         }
       });
     });
+    // Drive the Test-Button colour from the outcome (_statusOk reflects success
+    // for apt/docker and failure for unknown / any thrown error via _guard).
+    if (mounted) {
+      setState(() {
+        _testing = false;
+        _connectionOk = _statusOk;
+      });
+    }
   }
 
   Future<void> _install() async {
@@ -1148,6 +1171,13 @@ class _UpdaterPageState extends State<UpdaterPage>
               onDelete: _profiles.length > 1 ? _deleteActiveProfile : null,
             ),
             const SizedBox(height: 8),
+            _TestButton(
+              testing: _testing,
+              result: _connectionOk,
+              enabled: !_busy,
+              onTap: _testConnection,
+            ),
+            const SizedBox(height: 8),
             if (_update != null) ...[
               _UpdateBanner(
                 release: _update!,
@@ -1209,14 +1239,6 @@ class _UpdaterPageState extends State<UpdaterPage>
                 minimumSize: const Size.fromHeight(52),
                 textStyle: const TextStyle(fontSize: 16),
               ),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : _testConnection,
-              icon: const Icon(Icons.wifi_tethering),
-              label: const Text('Verbindung testen'),
-              style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44)),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
